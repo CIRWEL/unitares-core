@@ -522,16 +522,17 @@ class TestScoring:
         assert phi_low_drift > phi_high_drift
 
     def test_verdict_safe(self):
-        """Φ >= 0.22 should be 'safe'."""
-        assert verdict_from_phi(0.22) == "safe"
+        """Φ >= 0.13 should be 'safe'."""
+        assert verdict_from_phi(0.13) == "safe"
+        assert verdict_from_phi(0.15) == "safe"
         assert verdict_from_phi(0.3) == "safe"
         assert verdict_from_phi(1.0) == "safe"
 
     def test_verdict_caution(self):
-        """0.0 <= Φ < 0.22 should be 'caution'."""
+        """0.0 <= Φ < 0.13 should be 'caution'."""
         assert verdict_from_phi(0.0) == "caution"
         assert verdict_from_phi(0.1) == "caution"
-        assert verdict_from_phi(0.21) == "caution"
+        assert verdict_from_phi(0.12) == "caution"
 
     def test_verdict_high_risk(self):
         """Φ < 0.0 should be 'high-risk'."""
