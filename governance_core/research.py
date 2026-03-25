@@ -26,51 +26,29 @@ def approximate_stability_check(
     dt: float = 0.05,
 ) -> Dict:
     """
-    Monte Carlo stability check — sample random initial conditions and
-    verify the ODE stays within bounds.
+    Stability check via Lyapunov eigenvalue analysis at equilibrium.
+
+    Uses rigorous mathematical verification instead of Monte Carlo sampling.
+    The samples and steps_per_sample parameters are kept for backward
+    compatibility but are not used.
 
     Returns dict with 'stable', 'alpha_estimate', 'violations', 'notes'.
     """
-    violations = 0
-    for _ in range(samples):
-        s = State(
-            E=random.uniform(params.E_min, params.E_max),
-            I=random.uniform(params.I_min, params.I_max),
-            S=random.uniform(params.S_min, params.S_max),
-            V=random.uniform(params.V_min, params.V_max),
-        )
-        ok = True
-        for _ in range(steps_per_sample):
-            delta_eta = [random.uniform(-0.2, 0.2) for _ in range(3)]
-            noise_S = random.uniform(-0.05, 0.05)
-            s = step_state(s, theta, delta_eta, dt=dt, noise_S=noise_S, params=params)
-            if not (
-                params.E_min <= s.E <= params.E_max
-                and params.I_min <= s.I <= params.I_max
-                and params.S_min <= s.S <= params.S_max
-                and params.V_min <= s.V <= params.V_max
-            ):
-                ok = False
-                break
-        if not ok:
-            violations += 1
+    from .stability import verify_lyapunov_stability
+    from .dynamics import compute_equilibrium
 
-    violation_rate = violations / max(1, samples)
-    stable = violation_rate < 0.05
-    alpha_estimate = 0.1 if stable else 0.0
-    notes = (
-        f"Approximate stability with {samples} samples, "
-        f"violation rate={violation_rate:.3f}."
-    )
-    if not stable:
-        notes += " System appears marginal or unstable."
-    else:
-        notes += " System appears stable under tested conditions."
+    eq = compute_equilibrium(params, theta)
+    result = verify_lyapunov_stability(eq, params, theta, complexity=0.5)
+
     return {
-        "stable": stable,
-        "alpha_estimate": alpha_estimate,
-        "violations": violations,
-        "notes": notes,
+        "stable": result["stable"],
+        "alpha_estimate": result["contraction_rate"],
+        "violations": 0 if result["stable"] else 1,
+        "notes": (
+            f"Lyapunov eigenvalue analysis at equilibrium. "
+            f"Max eigenvalue: {result['max_eigenvalue']:.6f}, "
+            f"contraction rate: {result['contraction_rate']:.6f}"
+        ),
     }
 
 

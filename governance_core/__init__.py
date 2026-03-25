@@ -75,6 +75,14 @@ from .research import (
     suggest_theta_update,
 )
 
+from .stability import (
+    compute_jacobian,
+    verify_lyapunov_stability,
+    gershgorin_stability_bound,
+    sweep_stability,
+    optimize_stability_metric,
+)
+
 __all__ = [
     # Core state and dynamics
     'State',
@@ -130,6 +138,13 @@ __all__ = [
     # Research tools
     'approximate_stability_check',
     'suggest_theta_update',
+
+    # Stability verification (Lyapunov)
+    'compute_jacobian',
+    'verify_lyapunov_stability',
+    'gershgorin_stability_bound',
+    'sweep_stability',
+    'optimize_stability_metric',
 ]
 
-__version__ = '2.4.0'  # RK4 integration
+__version__ = '2.5.0'  # Lyapunov stability verification
