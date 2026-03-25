@@ -125,6 +125,21 @@ V42P_PARAMS: DynamicsParams = DynamicsParams(
 )
 
 
+def get_integrator_mode() -> str:
+    """
+    Returns the ODE integration method.
+
+    Supported:
+    - UNITARES_INTEGRATOR=rk4 (default): 4th-order Runge-Kutta, O(dt^4) error
+    - UNITARES_INTEGRATOR=euler: Forward Euler, O(dt) error (legacy)
+
+    RK4 is the default since governance-core v2.4.0. It provides significantly
+    better accuracy at the same dt, especially important for gap-aware dt
+    scaling where dt can reach 1.0.
+    """
+    return os.getenv("UNITARES_INTEGRATOR", "rk4").strip().lower()
+
+
 def get_i_dynamics_mode() -> str:
     """
     Returns the I-channel dynamics mode.

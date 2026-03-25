@@ -70,6 +70,167 @@ class State:
 DEFAULT_STATE = State(E=0.7, I=0.8, S=0.2, V=0.0)
 
 
+def _derivatives(
+    state: State,
+    d_eta_sq: float,
+    theta: Theta,
+    params: DynamicsParams,
+    noise_S: float,
+    complexity: float,
+    sensor_eisv: Optional[State],
+) -> tuple:
+    """
+    Compute raw EISV derivatives at a given state.
+
+    This is the pure derivative function f(x) for the ODE system,
+    separated from integration to support higher-order methods (RK4).
+
+    Args:
+        state: Current EISV state
+        d_eta_sq: Squared drift norm ‖Δη‖²
+        theta: Control parameters
+        params: Dynamics parameters
+        noise_S: Calibration penalty / noise term for S
+        complexity: Task complexity [0, 1]
+        sensor_eisv: Optional sensor state for spring coupling
+
+    Returns:
+        (dE_dt, dI_dt, dS_dt, dV_dt) tuple
+    """
+    # Compute coherence at this state's V
+    C = coherence(state.V, theta, params)
+
+    # Compute adaptive lambda values (theta-dependent, state-independent)
+    lam1 = lambda1(theta, params)
+    lam2 = lambda2(theta, params)
+
+    E, I, S, V = state.E, state.I, state.S, state.V
+
+    # E dynamics: Ė = α(I - E) - βₑES + γₑ‖Δη‖²
+    dE_dt = (
+        params.alpha * (I - E)
+        - params.beta_E * E * S
+        + params.gamma_E * d_eta_sq
+    )
+
+    # I dynamics
+    A = params.beta_I * C - params.k * S
+    from .parameters import get_i_dynamics_mode
+    i_mode = get_i_dynamics_mode()
+    if i_mode == "linear":
+        dI_dt = A - params.gamma_I * I
+    else:
+        dI_dt = A - params.gamma_I * I * (1 - I)
+
+    # S dynamics: Ṡ = -μS + λ₁‖Δη‖² - λ₂C + β_c·complexity + noise
+    dS_dt = (
+        -params.mu * S
+        + lam1 * d_eta_sq
+        - lam2 * C
+        + params.beta_complexity * complexity
+        + noise_S
+    )
+
+    # V dynamics: V̇ = κ(E - I) - δV
+    dV_dt = (
+        params.kappa * (E - I)
+        - params.delta * V
+    )
+
+    # Sensor anchoring: spring coupling to observed sensor state
+    if sensor_eisv is not None:
+        E_range = params.E_max - params.E_min
+        S_range = params.S_max - params.S_min
+        V_range = params.V_max - params.V_min
+        dE_dt += params.k_anchor * (sensor_eisv.E - E) / E_range
+        dI_dt += params.k_anchor * (sensor_eisv.I - I) / E_range
+        dS_dt += params.k_anchor * (sensor_eisv.S - S) / S_range
+        dV_dt += params.k_anchor * (sensor_eisv.V - V) / V_range
+
+    return (dE_dt, dI_dt, dS_dt, dV_dt)
+
+
+def _integrate_euler(
+    state: State,
+    d_eta_sq: float,
+    theta: Theta,
+    params: DynamicsParams,
+    dt: float,
+    noise_S: float,
+    complexity: float,
+    sensor_eisv: Optional[State],
+) -> State:
+    """Forward Euler integration: x_new = x + dt * f(x)."""
+    dE, dI, dS, dV = _derivatives(state, d_eta_sq, theta, params, noise_S, complexity, sensor_eisv)
+
+    E_new = clip(state.E + dE * dt, params.E_min, params.E_max)
+    I_new = clip(state.I + dI * dt, params.I_min, params.I_max)
+    S_new = clip(state.S + dS * dt, params.S_min, params.S_max)
+    V_new = clip(state.V + dV * dt, params.V_min, params.V_max)
+
+    return State(E=E_new, I=I_new, S=S_new, V=V_new)
+
+
+def _integrate_rk4(
+    state: State,
+    d_eta_sq: float,
+    theta: Theta,
+    params: DynamicsParams,
+    dt: float,
+    noise_S: float,
+    complexity: float,
+    sensor_eisv: Optional[State],
+) -> State:
+    """
+    4th-order Runge-Kutta integration.
+
+    x_new = x + (dt/6)(k1 + 2k2 + 2k3 + k4)
+
+    Intermediate states are clipped to bounds to prevent derivative
+    evaluation at unphysical points.
+    """
+    E, I, S, V = state.E, state.I, state.S, state.V
+
+    # k1 = f(state)
+    k1 = _derivatives(state, d_eta_sq, theta, params, noise_S, complexity, sensor_eisv)
+
+    # k2 = f(state + 0.5*dt*k1)
+    s2 = State(
+        E=clip(E + 0.5 * dt * k1[0], params.E_min, params.E_max),
+        I=clip(I + 0.5 * dt * k1[1], params.I_min, params.I_max),
+        S=clip(S + 0.5 * dt * k1[2], params.S_min, params.S_max),
+        V=clip(V + 0.5 * dt * k1[3], params.V_min, params.V_max),
+    )
+    k2 = _derivatives(s2, d_eta_sq, theta, params, noise_S, complexity, sensor_eisv)
+
+    # k3 = f(state + 0.5*dt*k2)
+    s3 = State(
+        E=clip(E + 0.5 * dt * k2[0], params.E_min, params.E_max),
+        I=clip(I + 0.5 * dt * k2[1], params.I_min, params.I_max),
+        S=clip(S + 0.5 * dt * k2[2], params.S_min, params.S_max),
+        V=clip(V + 0.5 * dt * k2[3], params.V_min, params.V_max),
+    )
+    k3 = _derivatives(s3, d_eta_sq, theta, params, noise_S, complexity, sensor_eisv)
+
+    # k4 = f(state + dt*k3)
+    s4 = State(
+        E=clip(E + dt * k3[0], params.E_min, params.E_max),
+        I=clip(I + dt * k3[1], params.I_min, params.I_max),
+        S=clip(S + dt * k3[2], params.S_min, params.S_max),
+        V=clip(V + dt * k3[3], params.V_min, params.V_max),
+    )
+    k4 = _derivatives(s4, d_eta_sq, theta, params, noise_S, complexity, sensor_eisv)
+
+    # Combine: x_new = x + (dt/6)(k1 + 2k2 + 2k3 + k4)
+    dt6 = dt / 6.0
+    E_new = clip(E + dt6 * (k1[0] + 2*k2[0] + 2*k3[0] + k4[0]), params.E_min, params.E_max)
+    I_new = clip(I + dt6 * (k1[1] + 2*k2[1] + 2*k3[1] + k4[1]), params.I_min, params.I_max)
+    S_new = clip(S + dt6 * (k1[2] + 2*k2[2] + 2*k3[2] + k4[2]), params.S_min, params.S_max)
+    V_new = clip(V + dt6 * (k1[3] + 2*k2[3] + 2*k3[3] + k4[3]), params.V_min, params.V_max)
+
+    return State(E=E_new, I=I_new, S=S_new, V=V_new)
+
+
 def compute_dynamics(
     state: State,
     delta_eta: List[float],
@@ -87,6 +248,12 @@ def compute_dynamics(
     UNITARES system and the research unitaires system should use this
     function for state evolution.
 
+    Supports two integration methods:
+    - RK4 (default): 4th-order Runge-Kutta, O(dt^4) error
+    - Euler: Forward Euler, O(dt) error (legacy, for backward compat)
+
+    Set via UNITARES_INTEGRATOR env var ('rk4' or 'euler').
+
     Args:
         state: Current UNITARES state (E, I, S, V)
         delta_eta: Ethical drift vector (list of floats)
@@ -101,106 +268,34 @@ def compute_dynamics(
 
     Returns:
         New state after dt time evolution
-
-    Mathematical Details:
-        The dynamics implement a thermodynamic model where:
-        - E and I are coupled resources that flow toward balance
-        - S represents disorder/uncertainty that decays and is driven by drift
-        - V accumulates E-I imbalance and creates feedback via coherence
-        - Coherence C(V,Θ) acts as a stabilizing feedback mechanism
-        - When sensor_eisv is provided, each dimension gets a restoring force
-          toward the observed sensor value (spring coupling with strength k_anchor)
-
-    Implementation Notes:
-        - All state variables are clipped to their physical bounds
-        - Drift norm ‖Δη‖ is computed once and squared for efficiency
-        - Coherence is computed via the coherence module
-        - Lambda functions λ₁, λ₂ are Theta-dependent
-        - Sensor anchoring is additive and does not change equilibrium analysis
-          (at equilibrium, sensor and ODE states converge, making the term zero)
     """
     # SECURITY: Clip complexity to valid range [0,1] as defense-in-depth
-    # Even if validation fails upstream, dynamics equations remain stable
     complexity = max(0.0, min(1.0, complexity))
 
-    # Compute derived quantities
+    # Compute derived quantities (constant across RK4 sub-steps)
     d_eta = drift_norm(delta_eta)
     d_eta_sq = d_eta * d_eta
 
-    # Compute coherence (depends on V and Theta)
-    C = coherence(state.V, theta, params)
+    # Select integrator
+    from .parameters import get_integrator_mode
+    integrator = get_integrator_mode()
 
-    # Compute adaptive lambda values
-    lam1 = lambda1(theta, params)
-    lam2 = lambda2(theta, params)
-
-    # Extract current state
-    E, I, S, V = state.E, state.I, state.S, state.V
-
-    # Compute derivatives
-    # E dynamics: coupling to I, E-S cross-coupling, drift feedback
-    # UNITARES v4.1 Eq. 7: Ė = α(I - E) - βₑES + γₑ‖Δη‖² + dₑ
-    dE_dt = (
-        params.alpha * (I - E)           # I → E flow
-        - params.beta_E * E * S          # E-S cross-coupling (fixed: was missing E)
-        + params.gamma_E * d_eta_sq      # Drift feedback
-    )
-
-    # I dynamics: S coupling, coherence boost, self-regulation
-    # Forcing term A (isolated for clarity and future extensibility)
-    A = params.beta_I * C - params.k * S
-    
-    # Check dynamics mode (linear default since v5, logistic legacy)
-    from .parameters import get_i_dynamics_mode
-    i_mode = get_i_dynamics_mode()
-
-    if i_mode == "linear":
-        # v5 default: Linear damping prevents boundary saturation
-        # dI/dt = A - γ_I·I → stable equilibrium at I* = A/γ_I
-        dI_dt = A - params.gamma_I * I
+    if integrator == "euler":
+        new_state = _integrate_euler(
+            state, d_eta_sq, theta, params, dt, noise_S, complexity, sensor_eisv,
+        )
     else:
-        # Legacy logistic: can saturate to I=1 if A > γ/4
-        # dI/dt = A - γ_I·I·(1-I) → two equilibria, boundary risk
-        dI_dt = A - params.gamma_I * I * (1 - I)
+        new_state = _integrate_rk4(
+            state, d_eta_sq, theta, params, dt, noise_S, complexity, sensor_eisv,
+        )
 
-    # S dynamics: decay, drift drive, coherence reduction, complexity drive, noise
-    dS_dt = (
-        -params.mu * S                   # Natural decay
-        + lam1 * d_eta_sq                # Drift increases uncertainty
-        - lam2 * C                       # Coherence reduces uncertainty
-        + params.beta_complexity * complexity  # Complexity increases uncertainty
-        + noise_S                        # Optional noise term
-    )
-
-    # V dynamics: signed E-I imbalance accumulation with exponential decay
-    dV_dt = (
-        params.kappa * (E - I)           # E>I → V rises (hot); I>E → V falls (careful)
-        - params.delta * V               # Decay toward zero (recent history dominates)
-    )
-
-    # Sensor anchoring: spring coupling pulls ODE toward observed sensor state
-    # Normalize by dimension range so coupling strength is proportional across all dimensions
-    if sensor_eisv is not None:
-        E_range = params.E_max - params.E_min  # 1.0
-        S_range = params.S_max - params.S_min  # ~2.0
-        V_range = params.V_max - params.V_min  # 4.0
-        dE_dt += params.k_anchor * (sensor_eisv.E - E) / E_range
-        dI_dt += params.k_anchor * (sensor_eisv.I - I) / E_range  # I has same range as E
-        dS_dt += params.k_anchor * (sensor_eisv.S - S) / S_range
-        dV_dt += params.k_anchor * (sensor_eisv.V - V) / V_range
-
-    # Euler integration with clipping to physical bounds
-    E_new = clip(E + dE_dt * dt, params.E_min, params.E_max)
-    I_new = clip(I + dI_dt * dt, params.I_min, params.I_max)
-    S_new = clip(S + dS_dt * dt, params.S_min, params.S_max)
-
-    # Complexity-proportional entropy floor: ensures S reflects task difficulty
+    # Post-integration: complexity-proportional entropy floor
+    # Applied after integration (not inside derivative) to avoid
+    # non-smooth dynamics affecting RK4 intermediate evaluations
     complexity_floor = params.S_min + 0.049 * complexity
-    S_new = max(S_new, complexity_floor)
+    S_final = max(new_state.S, complexity_floor)
 
-    V_new = clip(V + dV_dt * dt, params.V_min, params.V_max)
-
-    return State(E=E_new, I=I_new, S=S_new, V=V_new)
+    return State(E=new_state.E, I=new_state.I, S=S_final, V=new_state.V)
 
 
 def step_state(

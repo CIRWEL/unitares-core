@@ -36,6 +36,7 @@ from .parameters import (
     DEFAULT_WEIGHTS,
     DEFAULT_THETA,
     get_i_dynamics_mode,
+    get_integrator_mode,
 )
 
 from .dynamics import DEFAULT_STATE
@@ -99,6 +100,7 @@ __all__ = [
     'DEFAULT_THETA',
     'DEFAULT_STATE',
     'get_i_dynamics_mode',
+    'get_integrator_mode',
 
     # Utilities
     'clip',
@@ -130,4 +132,4 @@ __all__ = [
     'suggest_theta_update',
 ]
 
-__version__ = '2.3.0'  # CIRS v2 Adaptive Governor
+__version__ = '2.4.0'  # RK4 integration
