@@ -174,6 +174,48 @@ def _analytical_jacobian(
     J[3, 2] = 0.0
     J[3, 3] = -params.delta
 
+    # Barrier Jacobian contributions (only non-zero near boundaries)
+    # d(barrier)/dx for lower bound: -strength * 3 * t² / margin
+    # d(barrier)/dx for upper bound: -strength * 3 * t² / margin
+    m = params.barrier_margin
+    s = params.barrier_strength
+    S_range_ratio = params.S_max - params.S_min
+    V_range_ratio = params.V_max - params.V_min
+
+    # E barrier
+    if E - params.E_min < m:
+        t = 1.0 - (E - params.E_min) / m
+        J[0, 0] += -s * 3.0 * t * t / m
+    if params.E_max - E < m:
+        t = 1.0 - (params.E_max - E) / m
+        J[0, 0] += -s * 3.0 * t * t / m
+
+    # I barrier
+    if I - params.I_min < m:
+        t = 1.0 - (I - params.I_min) / m
+        J[1, 1] += -s * 3.0 * t * t / m
+    if params.I_max - I < m:
+        t = 1.0 - (params.I_max - I) / m
+        J[1, 1] += -s * 3.0 * t * t / m
+
+    # S barrier (scaled margin)
+    m_S = m * S_range_ratio
+    if S - params.S_min < m_S:
+        t = 1.0 - (S - params.S_min) / m_S
+        J[2, 2] += -s * 3.0 * t * t / m_S
+    if params.S_max - S < m_S:
+        t = 1.0 - (params.S_max - S) / m_S
+        J[2, 2] += -s * 3.0 * t * t / m_S
+
+    # V barrier (scaled margin)
+    m_V = m * V_range_ratio
+    if V - params.V_min < m_V:
+        t = 1.0 - (V - params.V_min) / m_V
+        J[3, 3] += -s * 3.0 * t * t / m_V
+    if params.V_max - V < m_V:
+        t = 1.0 - (params.V_max - V) / m_V
+        J[3, 3] += -s * 3.0 * t * t / m_V
+
     return J
 
 

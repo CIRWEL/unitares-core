@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from .parameters import DynamicsParams, Theta
-from .utils import clip, drift_norm
+from .utils import clip, drift_norm, barrier
 from .coherence import coherence, lambda1, lambda2
 
 
@@ -146,6 +146,19 @@ def _derivatives(
         dI_dt += params.k_anchor * (sensor_eisv.I - I) / E_range
         dS_dt += params.k_anchor * (sensor_eisv.S - S) / S_range
         dV_dt += params.k_anchor * (sensor_eisv.V - V) / V_range
+
+    # Soft barrier: smooth repulsion near state bounds
+    # Replaces hard clipping as primary bound enforcement. Clips in the
+    # integrators remain as a safety net but should never activate.
+    m = params.barrier_margin
+    s = params.barrier_strength
+    S_range_ratio = params.S_max - params.S_min   # ~2.0
+    V_range_ratio = params.V_max - params.V_min   # ~4.0
+
+    dE_dt += barrier(E, params.E_min, params.E_max, s, m)
+    dI_dt += barrier(I, params.I_min, params.I_max, s, m)
+    dS_dt += barrier(S, params.S_min, params.S_max, s, m * S_range_ratio)
+    dV_dt += barrier(V, params.V_min, params.V_max, s, m * V_range_ratio)
 
     return (dE_dt, dI_dt, dS_dt, dV_dt)
 

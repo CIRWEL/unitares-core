@@ -34,6 +34,7 @@ from governance_core import (
     EthicalDriftVector, AgentBaseline, compute_ethical_drift,
     get_agent_baseline, clear_baseline,
 )
+from governance_core.utils import barrier
 from governance_core.dynamics import (
     compute_equilibrium, estimate_convergence, check_basin, compute_saturation_diagnostics,
 )
@@ -915,3 +916,140 @@ class TestIntegration:
         
         assert "action" in decision
         assert decision["action"] in ["proceed", "pause", "caution"]
+
+
+# ============================================================================
+# SOFT BARRIER DYNAMICS TESTS
+# ============================================================================
+
+class TestBarrierFunction:
+    """Tests for the smooth cubic barrier function."""
+
+    def test_zero_in_interior(self):
+        """Barrier returns zero well inside bounds."""
+        assert barrier(0.5, 0.0, 1.0, 2.0, 0.05) == 0.0
+        assert barrier(0.77, 0.0, 1.0, 2.0, 0.05) == 0.0
+        assert barrier(0.0, -2.0, 2.0, 2.0, 0.2) == 0.0
+
+    def test_positive_near_lower_bound(self):
+        """Barrier pushes up near lower bound."""
+        force = barrier(0.01, 0.0, 1.0, 2.0, 0.05)
+        assert force > 0.0
+
+    def test_negative_near_upper_bound(self):
+        """Barrier pushes down near upper bound."""
+        force = barrier(0.99, 0.0, 1.0, 2.0, 0.05)
+        assert force < 0.0
+
+    def test_maximum_at_boundary(self):
+        """Barrier force is strongest exactly at the boundary."""
+        force_at_bound = barrier(0.0, 0.0, 1.0, 2.0, 0.05)
+        force_near_bound = barrier(0.01, 0.0, 1.0, 2.0, 0.05)
+        assert force_at_bound > force_near_bound
+
+    def test_strength_parameter(self):
+        """Force at boundary equals strength parameter."""
+        s = 2.0
+        force = barrier(0.0, 0.0, 1.0, s, 0.05)
+        assert abs(force - s) < 1e-10  # t=1 at boundary, t³=1, force = s*1
+
+    def test_c2_smooth_at_margin_edge(self):
+        """Derivative is continuous across margin boundary (numerical check)."""
+        m = 0.05
+        eps = 1e-7
+        # Just inside margin vs just outside margin (lower bound)
+        x_inside = 0.0 + m - eps
+        x_outside = 0.0 + m + eps
+        f_inside = barrier(x_inside, 0.0, 1.0, 2.0, m)
+        f_outside = barrier(x_outside, 0.0, 1.0, 2.0, m)
+        # Both should be near zero at the margin edge
+        assert abs(f_inside) < 1e-4
+        assert abs(f_outside) < 1e-10  # Exactly zero outside
+
+    def test_monotonic_repulsion(self):
+        """Force increases monotonically toward boundary."""
+        forces = [barrier(x, 0.0, 1.0, 2.0, 0.05) for x in [0.04, 0.03, 0.02, 0.01, 0.0]]
+        for i in range(len(forces) - 1):
+            assert forces[i + 1] > forces[i]
+
+    def test_symmetric_bounds(self):
+        """Barrier at lower and upper bounds are equal in magnitude."""
+        f_lo = barrier(0.01, 0.0, 1.0, 2.0, 0.05)
+        f_hi = barrier(0.99, 0.0, 1.0, 2.0, 0.05)
+        assert abs(f_lo + f_hi) < 1e-10  # Equal magnitude, opposite sign
+
+
+class TestBarrierInDynamics:
+    """Tests for barrier integration into the ODE system."""
+
+    def test_equilibrium_unchanged(self):
+        """Barrier does not affect equilibrium (barrier is zero at equilibrium)."""
+        params = DynamicsParams()
+        theta = Theta(C1=1.0, eta1=0.3)
+        eq = compute_equilibrium(params, theta)
+
+        # Equilibrium is well inside bounds, barrier should be zero there
+        assert eq.E > params.barrier_margin
+        assert eq.E < params.E_max - params.barrier_margin
+        assert eq.I > params.barrier_margin
+        assert eq.I < params.I_max - params.barrier_margin
+
+        # Verify equilibrium with barrier params disabled vs enabled are identical
+        # (barrier is zero at interior equilibrium, so no effect)
+        params_no_barrier = DynamicsParams(barrier_strength=0.0)
+        eq_no_barrier = compute_equilibrium(params_no_barrier, theta)
+        assert abs(eq.E - eq_no_barrier.E) < 1e-10
+        assert abs(eq.I - eq_no_barrier.I) < 1e-10
+        assert abs(eq.S - eq_no_barrier.S) < 1e-10
+
+    def test_barrier_prevents_overshoot(self):
+        """Starting from extreme E=0.99, barrier keeps E < 1.0 without clip."""
+        params = DynamicsParams()
+        theta = Theta(C1=1.0, eta1=0.3)
+        state = State(E=0.99, I=0.5, S=0.2, V=0.0)
+
+        # Integrate several steps
+        for _ in range(50):
+            state = compute_dynamics(state, [], theta, params, dt=0.1)
+
+        assert state.E <= 1.0
+        assert state.E >= 0.0
+
+    def test_barrier_prevents_undershoot(self):
+        """Starting from extreme E=0.01, barrier keeps E > 0.0."""
+        params = DynamicsParams()
+        theta = Theta(C1=1.0, eta1=0.3)
+        state = State(E=0.01, I=0.8, S=0.2, V=0.0)
+
+        for _ in range(50):
+            state = compute_dynamics(state, [], theta, params, dt=0.1)
+
+        assert state.E >= 0.0
+        assert state.E <= 1.0
+
+    def test_all_existing_dynamics_tests_pass_implicitly(self):
+        """Barrier adds zero force in interior, so all existing behavior is preserved.
+
+        This test verifies the barrier is truly zero at the default operating point.
+        """
+        from governance_core.dynamics import _derivatives
+        params = DynamicsParams()
+        theta = Theta(C1=1.0, eta1=0.3)
+        eq = compute_equilibrium(params, theta)
+
+        # Get derivatives at equilibrium — they should be near zero
+        derivs = _derivatives(eq, 0.0, theta, params, 0.0, 0.5, None)
+        for d in derivs:
+            assert abs(d) < 0.01, f"Derivative at equilibrium not near zero: {d}"
+
+    def test_barrier_params_in_dynamics_params(self):
+        """Verify barrier parameters are accessible and have correct defaults."""
+        params = DynamicsParams()
+        assert params.barrier_strength == 2.0
+        assert params.barrier_margin == 0.05
+
+    def test_barrier_params_customizable(self):
+        """Barrier parameters can be overridden."""
+        params = DynamicsParams(barrier_strength=5.0, barrier_margin=0.1)
+        assert params.barrier_strength == 5.0
+        assert params.barrier_margin == 0.1

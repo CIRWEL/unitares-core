@@ -62,6 +62,10 @@ class DynamicsParams:
     V_min: float = -2.0
     V_max: float = 2.0
 
+    # Soft barrier parameters (replaces hard clipping as primary bound enforcement)
+    barrier_strength: float = 2.0    # Repulsion force at boundary
+    barrier_margin: float = 0.05     # Distance from bound where barrier activates
+
     # Control parameter bounds (for Theta optimization)
     C1_min: float = 0.5
     C1_max: float = 1.5
