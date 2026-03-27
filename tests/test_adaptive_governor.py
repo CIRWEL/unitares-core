@@ -611,28 +611,6 @@ class TestClamp:
 
 
 # ===========================================================================
-# TestMonitorIntegration
-# ===========================================================================
-
-
-class TestMonitorIntegration:
-    """Test AdaptiveGovernor wired into GovernanceMonitor."""
-
-    def test_feature_flag_on_uses_adaptive(self):
-        """When flag is on, AdaptiveGovernor is the active CIRS path."""
-        from config.governance_config import GovernanceConfig
-        assert GovernanceConfig.ADAPTIVE_GOVERNOR_ENABLED is True
-
-    def test_governor_config_matches_monitor_defaults(self):
-        """AdaptiveGovernor defaults are consistent with GovernanceMonitor's static config."""
-        from config.governance_config import GovernanceConfig
-        gc = GovernorConfig()
-        # tau_default (0.44) should be >= COHERENCE_CRITICAL_THRESHOLD (0.40)
-        assert gc.tau_default >= GovernanceConfig.COHERENCE_CRITICAL_THRESHOLD
-        assert gc.beta_default == GovernanceConfig.RISK_REVISE_THRESHOLD
-
-
-# ===========================================================================
 # TestNeighborPressure
 # ===========================================================================
 

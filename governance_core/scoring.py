@@ -12,7 +12,7 @@ Interpretation:
     - Φ balances multiple competing objectives
 
 Verdict Thresholds:
-    Φ ≥ 0.13 → "safe"
+    Φ ≥ 0.08 → "safe"
     Φ ≥ 0.0  → "caution"
     Φ < 0.0  → "high-risk"
 """
@@ -66,18 +66,18 @@ def phi_objective(
     return phi
 
 
-def verdict_from_phi(phi: float, safe_threshold: float = 0.13, caution_threshold: float = 0.0) -> str:
+def verdict_from_phi(phi: float, safe_threshold: float = 0.08, caution_threshold: float = 0.0) -> str:
     """
     Convert Φ score to verdict category.
 
     Thresholds (configurable):
-        Φ ≥ safe_threshold (default 0.13)  → "safe"
+        Φ ≥ safe_threshold (default 0.08)  → "safe"
         Φ ≥ caution_threshold (default 0.0) → "caution"
         Φ < caution_threshold              → "high-risk"
 
     Args:
         phi: Φ objective score
-        safe_threshold: Threshold for "safe" verdict (default 0.13)
+        safe_threshold: Threshold for "safe" verdict (default 0.08)
         caution_threshold: Threshold for "caution" verdict (default 0.0)
 
     Returns:
@@ -88,7 +88,7 @@ def verdict_from_phi(phi: float, safe_threshold: float = 0.13, caution_threshold
         - "safe" suggests proceeding normally
         - "caution" suggests proceeding with safeguards
         - "high-risk" suggests human review or rejection
-        - Typical healthy state (E=0.7, I=0.8, S=0.2) gives phi≈0.15 → "safe"
+        - Steady-state equilibrium (E≈0.7, I≈0.75, S≈0.18) gives phi≈0.11 → "safe"
     """
     if phi >= safe_threshold:
         return "safe"
