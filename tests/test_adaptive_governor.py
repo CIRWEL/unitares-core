@@ -124,11 +124,11 @@ class TestPIDUpdate:
     """Task 2 -- core PID threshold adaptation."""
 
     def test_stable_input_no_change(self):
-        """When thresholds are at reference, no adaptation occurs."""
+        """When coherence/risk match the phase target, no PID adaptation occurs."""
         gov = AdaptiveGovernor()
-        # Integration phase: ref is (0.44, 0.70) -- same as defaults.
+        # Integration phase target is (0.44, 0.70).
         result = gov.update(
-            coherence=0.65, risk=0.30, verdict="safe",
+            coherence=0.44, risk=0.70, verdict="high-risk",
             **_stable_histories(),
         )
         # Thresholds should stay near defaults (tiny float noise OK).
@@ -140,6 +140,23 @@ class TestPIDUpdate:
         assert "beta" in result
         assert "controller" in result
         assert "phase" in result
+
+    def test_live_signals_change_thresholds(self):
+        """Severe and healthy inputs should drive different threshold updates."""
+        severe = AdaptiveGovernor()
+        severe.update(
+            coherence=0.20, risk=0.95, verdict="high-risk",
+            **_stable_histories(),
+        )
+
+        healthy = AdaptiveGovernor()
+        healthy.update(
+            coherence=0.90, risk=0.01, verdict="safe",
+            **_stable_histories(),
+        )
+
+        assert severe.state.tau > healthy.state.tau
+        assert severe.state.beta < healthy.state.beta
 
     def test_p_term_moves_toward_reference(self):
         """P-term nudges thresholds toward phase reference."""
@@ -173,19 +190,17 @@ class TestPIDUpdate:
         gov = AdaptiveGovernor(config=config)
         histories = _stable_histories()
 
-        # First update: set prev_error from tau=0.50 (error = 0.44-0.50 = -0.06).
-        gov.state.tau = 0.50
-        gov.update(coherence=0.65, risk=0.30, verdict="safe", **histories)
+        # First update: establish a smaller negative coherence error.
+        gov.update(coherence=0.50, risk=0.30, verdict="safe", **histories)
         tau_after_first = gov.state.tau
 
-        # Second update: move tau further away -- D-term should resist.
-        gov.state.tau = 0.55
-        gov.update(coherence=0.65, risk=0.30, verdict="safe", **histories)
+        # Second update: worsen coherence further below the integration target.
+        gov.update(coherence=0.55, risk=0.30, verdict="safe", **histories)
         # D-term = K_d * d_factor * (e_new - e_prev).
-        # e_new = 0.44 - 0.55 = -0.11, e_prev = -0.06 from first update.
+        # e_new = 0.44 - 0.55 = -0.11, e_prev = 0.44 - 0.50 = -0.06.
         # D-term = 0.20 * 1.0 * (-0.11 - (-0.06)) = 0.20 * (-0.05) = -0.01.
-        # So adjustment is negative, pulling tau down. tau < 0.55.
-        assert gov.state.tau < 0.55
+        # So adjustment is negative, pulling tau down relative to the prior step.
+        assert gov.state.tau < tau_after_first
 
     def test_i_term_accumulates(self):
         """I-term accumulates under sustained deviation."""

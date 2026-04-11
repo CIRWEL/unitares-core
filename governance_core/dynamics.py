@@ -340,10 +340,10 @@ def step_state(
     Returns:
         New state after dt
     """
-    from .parameters import DEFAULT_PARAMS
+    from .parameters import get_active_params
 
     if params is None:
-        params = DEFAULT_PARAMS
+        params = get_active_params()
 
     return compute_dynamics(
         state=state,
@@ -364,13 +364,12 @@ def compute_equilibrium(
     complexity: float = 0.5,
 ) -> State:
     """
-    Compute equilibrium point where all derivatives are zero.
+    Compute an equilibrium for the current softened ODE.
 
-    Handles both linear and logistic I-dynamics modes:
-    - Linear (v5 default): I* = A / γ_I (unique interior equilibrium)
-    - Logistic (legacy): solves γᵢI²-γᵢI+(kS*-βᵢC₀)=0 (two equilibria)
-
-    This function returns the HIGH equilibrium (desired operating point).
+    The active dynamics include coherence feedback, soft barriers, and a
+    complexity-aware entropy floor, so the older closed-form approximation can
+    miss the true operating point. We therefore relax the full system forward
+    until it reaches a fixed point, then return that settled state.
 
     Args:
         params: Dynamics parameters
@@ -379,67 +378,51 @@ def compute_equilibrium(
         complexity: Task complexity [0, 1] (default 0.5, affects S* via β_complexity)
 
     Returns:
-        Equilibrium state (high equilibrium)
+        Equilibrium state for the current dynamics.
     """
-    import math
-    from .parameters import get_i_dynamics_mode
-
-    # At equilibrium with V* ≈ 0:
-    # C(0) = Cmax * 0.5 * (1 + tanh(0)) = Cmax/2
-    C_0 = params.Cmax / 2.0
-
-    # From Ṡ = 0: S* = (λ₁‖Δη‖² - λ₂C₀ + β_complexity·complexity) / μ
-    lam1 = lambda1(theta, params)
-    lam2 = lambda2(theta, params)
-    S_star = max(
-        params.S_min,
-        (lam1 * ethical_drift_norm_sq - lam2 * C_0
-         + params.beta_complexity * complexity) / params.mu,
+    complexity = max(0.0, min(1.0, complexity))
+    delta_eta = [ethical_drift_norm_sq ** 0.5] if ethical_drift_norm_sq > 0 else []
+    state = State(
+        E=clip(DEFAULT_STATE.E, params.E_min, params.E_max),
+        I=clip(DEFAULT_STATE.I, params.I_min, params.I_max),
+        S=clip(DEFAULT_STATE.S, params.S_min, params.S_max),
+        V=clip(DEFAULT_STATE.V, params.V_min, params.V_max),
     )
 
-    # Complexity-proportional entropy floor (matches compute_dynamics)
-    complexity_floor = params.S_min + 0.049 * complexity
-    S_star = max(S_star, complexity_floor)
+    max_steps = 4000
+    dt = 0.2
+    state_tol = 1e-10
+    deriv_tol = 1e-9
 
-    # Forcing term for I dynamics
-    A = params.beta_I * C_0 - params.k * S_star
+    for _ in range(max_steps):
+        next_state = compute_dynamics(
+            state=state,
+            delta_eta=delta_eta,
+            theta=theta,
+            params=params,
+            dt=dt,
+            noise_S=0.0,
+            complexity=complexity,
+            sensor_eisv=None,
+        )
+        max_delta = max(
+            abs(next_state.E - state.E),
+            abs(next_state.I - state.I),
+            abs(next_state.S - state.S),
+            abs(next_state.V - state.V),
+        )
+        state = next_state
+        if max_delta < state_tol:
+            break
 
-    i_mode = get_i_dynamics_mode()
+    derivs = _derivatives(state, ethical_drift_norm_sq, theta, params, 0.0, complexity, None)
+    if max(abs(d) for d in derivs) > deriv_tol:
+        raise RuntimeError(
+            "compute_equilibrium failed to converge to a fixed point: "
+            f"state={state}, derivs={derivs}"
+        )
 
-    if i_mode == "linear":
-        # Linear mode: dI/dt = A - γ_I·I = 0 → I* = A / γ_I
-        if params.gamma_I > 0:
-            I_star = A / params.gamma_I
-            I_star = max(params.I_min, min(params.I_max, I_star))
-        else:
-            I_star = 0.9
-    else:
-        # Logistic mode: dI/dt = A - γ_I·I·(1-I) = 0
-        # Solve quadratic: γᵢI² - γᵢI + (kS* - βᵢC₀) = 0
-        a = params.gamma_I
-        b = -params.gamma_I
-        c = params.k * S_star - params.beta_I * C_0
-
-        discriminant = b**2 - 4*a*c
-        if discriminant >= 0 and a != 0:
-            # Take the higher root (high equilibrium)
-            I_star = (-b + math.sqrt(discriminant)) / (2*a)
-            I_star = max(params.I_min, min(params.I_max, I_star))
-        else:
-            I_star = 0.9  # Default to high equilibrium region
-
-    # From Ė = 0: α(I* - E*) - β_E·E*·S* = 0
-    # E* = α·I* / (α + β_E·S*)
-    denom = params.alpha + params.beta_E * S_star
-    if denom > 0:
-        E_star = params.alpha * I_star / denom
-    else:
-        E_star = I_star
-
-    # V* ≈ 0 at equilibrium
-    V_star = 0.0
-
-    return State(E=E_star, I=I_star, S=S_star, V=V_star)
+    return state
 
 
 def estimate_convergence(

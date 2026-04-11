@@ -251,9 +251,11 @@ class AdaptiveGovernor:
             beta_ref = self.config.integration_beta_ref
             d_factor = self.config.integration_d_factor
 
-        # 3. Compute error signals
-        e_tau = tau_ref - self.state.tau
-        e_beta = beta_ref - self.state.beta
+        # 3. Compute error signals against live governance state, not the
+        # controller's own thresholds. The references define the desired
+        # operating point for coherence/risk in the current phase.
+        e_tau = tau_ref - coherence
+        e_beta = beta_ref - risk
 
         # 4a. PID update -- tau
         p_tau = self.config.K_p * e_tau

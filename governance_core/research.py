@@ -57,6 +57,7 @@ def _project_theta(theta: Theta, params: DynamicsParams = DEFAULT_PARAMS) -> The
     return Theta(
         C1=clip(theta.C1, params.C1_min, params.C1_max),
         eta1=clip(theta.eta1, params.eta1_min, params.eta1_max),
+        eta2=theta.eta2,
     )
 
 
@@ -88,13 +89,13 @@ def suggest_theta_update(
             t += dt
         return sum(phis) / max(1, len(phis))
 
-    theta_p = Theta(C1=theta.C1 + step, eta1=theta.eta1)
-    theta_m = Theta(C1=theta.C1 - step, eta1=theta.eta1)
+    theta_p = Theta(C1=theta.C1 + step, eta1=theta.eta1, eta2=theta.eta2)
+    theta_m = Theta(C1=theta.C1 - step, eta1=theta.eta1, eta2=theta.eta2)
     f_p, f_m = simulate_with_theta(theta_p), simulate_with_theta(theta_m)
     grad_C1 = (f_p - f_m) / (2.0 * step)
 
-    theta_p = Theta(C1=theta.C1, eta1=theta.eta1 + step)
-    theta_m = Theta(C1=theta.C1, eta1=theta.eta1 - step)
+    theta_p = Theta(C1=theta.C1, eta1=theta.eta1 + step, eta2=theta.eta2)
+    theta_m = Theta(C1=theta.C1, eta1=theta.eta1 - step, eta2=theta.eta2)
     f_p, f_m = simulate_with_theta(theta_p), simulate_with_theta(theta_m)
     grad_eta1 = (f_p - f_m) / (2.0 * step)
 
@@ -102,6 +103,7 @@ def suggest_theta_update(
     theta_new = Theta(
         C1=theta.C1 + eps * grad_C1,
         eta1=theta.eta1 + eps * grad_eta1,
+        eta2=theta.eta2,
     )
     theta_new = _project_theta(theta_new, params)
     rationale = (

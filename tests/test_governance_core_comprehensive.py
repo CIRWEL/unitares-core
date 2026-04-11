@@ -984,25 +984,18 @@ class TestBarrierFunction:
 class TestBarrierInDynamics:
     """Tests for barrier integration into the ODE system."""
 
-    def test_equilibrium_unchanged(self):
-        """Barrier does not affect equilibrium (barrier is zero at equilibrium)."""
-        params = DynamicsParams()
+    def test_equilibrium_is_fixed_point_of_softened_ode(self):
+        """Equilibrium solver returns a true fixed point of the active dynamics."""
+        from governance_core.parameters import get_active_params
+        from governance_core.dynamics import _derivatives
+
+        params = get_active_params()
         theta = Theta(C1=1.0, eta1=0.3)
         eq = compute_equilibrium(params, theta)
 
-        # Equilibrium is well inside bounds, barrier should be zero there
-        assert eq.E > params.barrier_margin
-        assert eq.E < params.E_max - params.barrier_margin
-        assert eq.I > params.barrier_margin
-        assert eq.I < params.I_max - params.barrier_margin
-
-        # Verify equilibrium with barrier params disabled vs enabled are identical
-        # (barrier is zero at interior equilibrium, so no effect)
-        params_no_barrier = DynamicsParams(barrier_strength=0.0)
-        eq_no_barrier = compute_equilibrium(params_no_barrier, theta)
-        assert abs(eq.E - eq_no_barrier.E) < 1e-10
-        assert abs(eq.I - eq_no_barrier.I) < 1e-10
-        assert abs(eq.S - eq_no_barrier.S) < 1e-10
+        derivs = _derivatives(eq, 0.0, theta, params, 0.0, 0.5, None)
+        for d in derivs:
+            assert abs(d) < 1e-8, f"Derivative at equilibrium not near zero: {d}"
 
     def test_barrier_prevents_overshoot(self):
         """Starting from extreme E=0.99, barrier keeps E < 1.0 without clip."""
@@ -1043,6 +1036,25 @@ class TestBarrierInDynamics:
         derivs = _derivatives(eq, 0.0, theta, params, 0.0, 0.5, None)
         for d in derivs:
             assert abs(d) < 0.01, f"Derivative at equilibrium not near zero: {d}"
+
+    def test_step_state_uses_active_params_by_default(self):
+        """step_state() should respect the active parameter profile when params=None."""
+        from governance_core.parameters import get_active_params
+
+        theta = Theta(C1=1.0, eta1=0.3)
+        state = State(E=0.7, I=0.6, S=0.2, V=0.1)
+        expected = compute_dynamics(state, [], theta, get_active_params(), dt=0.1)
+        actual = step_state(state, theta, [], dt=0.1)
+        assert actual == expected
+
+    def test_suggest_theta_update_preserves_eta2(self):
+        """Research theta suggestions should not reset eta2 coupling."""
+        from governance_core.research import suggest_theta_update
+
+        theta = Theta(C1=1.0, eta1=0.3, eta2=0.47)
+        state = State(E=0.7, I=0.8, S=0.2, V=0.0)
+        result = suggest_theta_update(theta, state, horizon=0.2, step=0.01)
+        assert result["theta_new"]["eta2"] == pytest.approx(0.47)
 
     def test_barrier_params_in_dynamics_params(self):
         """Verify barrier parameters are accessible and have correct defaults."""
