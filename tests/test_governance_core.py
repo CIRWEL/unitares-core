@@ -28,7 +28,6 @@ def test_imports():
     )
 
     print("✅ All imports successful")
-    return True
 
 
 def test_state_creation():
@@ -44,7 +43,6 @@ def test_state_creation():
     assert state.V == 0.0
 
     print(f"✅ State created: E={state.E}, I={state.I}, S={state.S}, V={state.V}")
-    return True
 
 
 def test_utils():
@@ -63,8 +61,6 @@ def test_utils():
     assert drift_norm([]) == 0.0
     assert abs(drift_norm([0.3, 0.4]) - 0.5) < 1e-6  # 3-4-5 triangle
     print("✅ drift_norm() working correctly")
-
-    return True
 
 
 def test_coherence():
@@ -90,7 +86,6 @@ def test_coherence():
     print(f"  λ₁ = {l1:.4f}, λ₂ = {l2:.4f}")
 
     print("✅ Coherence functions working correctly")
-    return True
 
 
 def test_dynamics():
@@ -124,11 +119,10 @@ def test_dynamics():
     # State should remain in bounds
     assert 0.0 <= new_state.E <= 1.0
     assert 0.0 <= new_state.I <= 1.0
-    assert 0.0 <= new_state.S <= 2.0
-    assert -2.0 <= new_state.V <= 2.0
+    assert 0.0 <= new_state.S <= 1.0
+    assert -1.0 <= new_state.V <= 1.0
 
     print("✅ Dynamics computation working correctly")
-    return True
 
 
 def test_scoring():
@@ -156,7 +150,6 @@ def test_scoring():
     assert phi_good > phi_bad
 
     print("✅ Scoring functions working correctly")
-    return True
 
 
 def test_step_state_wrapper():
@@ -175,7 +168,6 @@ def test_step_state_wrapper():
 
     print(f"  step_state: E={new_state.E:.3f}, I={new_state.I:.3f}")
     print("✅ step_state wrapper working correctly")
-    return True
 
 
 def run_all_tests():
@@ -197,7 +189,8 @@ def run_all_tests():
     results = []
     for test in tests:
         try:
-            results.append(test())
+            test()
+            results.append(True)
         except Exception as e:
             print(f"❌ {test.__name__} failed: {e}")
             import traceback

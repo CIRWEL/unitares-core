@@ -58,9 +58,9 @@ class DynamicsParams:
     I_min: float = 0.0
     I_max: float = 1.0
     S_min: float = 0.001  # Epistemic humility floor - prevents S=0.0 without external validation
-    S_max: float = 2.0
-    V_min: float = -2.0
-    V_max: float = 2.0
+    S_max: float = 1.0
+    V_min: float = -1.0
+    V_max: float = 1.0
 
     # Soft barrier parameters (replaces hard clipping as primary bound enforcement)
     barrier_strength: float = 2.0    # Repulsion force at boundary

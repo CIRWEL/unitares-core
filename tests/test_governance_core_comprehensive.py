@@ -100,8 +100,8 @@ class TestDynamics:
         # State should remain in bounds
         assert 0.0 <= new_state.E <= 1.0
         assert 0.0 <= new_state.I <= 1.0
-        assert 0.0 <= new_state.S <= 2.0
-        assert -2.0 <= new_state.V <= 2.0
+        assert 0.0 <= new_state.S <= 1.0
+        assert -1.0 <= new_state.V <= 1.0
 
     def test_dynamics_preserves_bounds_manual(self):
         """E, I, S, V should stay within physical bounds after any step (manual test cases)."""
@@ -110,10 +110,10 @@ class TestDynamics:
             (1.0, 0.5, 0.5, 0.0, [0.1]),
             (0.5, 0.0, 0.5, 0.0, [0.1]),
             (0.5, 1.0, 0.5, 0.0, [0.1]),
-            (0.5, 0.5, 0.0, 0.0, [0.1]),
-            (0.5, 0.5, 2.0, 0.0, [0.1]),
-            (0.5, 0.5, 0.5, -2.0, [0.1]),
-            (0.5, 0.5, 0.5, 2.0, [0.1]),
+            (0.5, 0.5, 0.001, 0.0, [0.1]),
+            (0.5, 0.5, 1.0, 0.0, [0.1]),
+            (0.5, 0.5, 0.5, -1.0, [0.1]),
+            (0.5, 0.5, 0.5, 1.0, [0.1]),
         ]
         
         for E, I, S, V, delta_eta in test_cases:
@@ -128,8 +128,8 @@ class TestDynamics:
             
             assert 0.0 <= new_state.E <= 1.0
             assert 0.0 <= new_state.I <= 1.0
-            assert 0.0 <= new_state.S <= 2.0
-            assert -2.0 <= new_state.V <= 2.0
+            assert 0.0 <= new_state.S <= 1.0
+            assert -1.0 <= new_state.V <= 1.0
     
     @pytest.mark.skipif(not HAS_HYPOTHESIS, reason="hypothesis not installed")
     def test_dynamics_preserves_bounds_property(self):
@@ -138,8 +138,8 @@ class TestDynamics:
         @given(
             st.floats(0, 1),  # E
             st.floats(0, 1),  # I
-            st.floats(0, 2),  # S
-            st.floats(-2, 2),  # V
+            st.floats(0, 1),  # S
+            st.floats(-1, 1),  # V
             st.lists(st.floats(-1, 1), min_size=1, max_size=4),  # delta_eta
         )
         def _test(E, I, S, V, delta_eta):
@@ -154,8 +154,8 @@ class TestDynamics:
             
             assert 0.0 <= new_state.E <= 1.0
             assert 0.0 <= new_state.I <= 1.0
-            assert 0.0 <= new_state.S <= 2.0
-            assert -2.0 <= new_state.V <= 2.0
+            assert 0.0 <= new_state.S <= 1.0
+            assert -1.0 <= new_state.V <= 1.0
         
         _test()
 
@@ -249,10 +249,10 @@ class TestDynamics:
         (1.0, 0.5, 0.5, 0.0),  # E at max
         (0.5, 0.0, 0.5, 0.0),  # I at min
         (0.5, 1.0, 0.5, 0.0),  # I at max
-        (0.5, 0.5, 0.0, 0.0),  # S at min
-        (0.5, 0.5, 2.0, 0.0),  # S at max
-        (0.5, 0.5, 0.5, -2.0),  # V at min
-        (0.5, 0.5, 0.5, 2.0),  # V at max
+        (0.5, 0.5, 0.001, 0.0),  # S at min
+        (0.5, 0.5, 1.0, 0.0),  # S at max
+        (0.5, 0.5, 0.5, -1.0),  # V at min
+        (0.5, 0.5, 0.5, 1.0),  # V at max
     ])
     def test_dynamics_at_boundary_states(self, E, I, S, V, default_theta, default_params):
         """Test dynamics when E=0, I=1, S=0, etc."""
@@ -270,8 +270,8 @@ class TestDynamics:
         # Should remain in bounds
         assert 0.0 <= new_state.E <= 1.0
         assert 0.0 <= new_state.I <= 1.0
-        assert 0.0 <= new_state.S <= 2.0
-        assert -2.0 <= new_state.V <= 2.0
+        assert 0.0 <= new_state.S <= 1.0
+        assert -1.0 <= new_state.V <= 1.0
 
     def test_dynamics_numerical_stability(self, default_state, default_theta, default_params):
         """Run 1000 steps, verify no NaN/Inf."""
@@ -317,8 +317,8 @@ class TestDynamics:
         # Equilibrium should be in bounds
         assert 0.0 <= equilibrium.E <= 1.0
         assert 0.0 <= equilibrium.I <= 1.0
-        assert 0.0 <= equilibrium.S <= 2.0
-        assert -2.0 <= equilibrium.V <= 2.0
+        assert 0.0 <= equilibrium.S <= 1.0
+        assert -1.0 <= equilibrium.V <= 1.0
 
     def test_estimate_convergence(self, default_state, default_params):
         """Test convergence estimation."""
@@ -408,8 +408,8 @@ class TestDynamics:
 
         assert 0.0 <= new_state.E <= 1.0
         assert 0.0 <= new_state.I <= 1.0
-        assert 0.0 <= new_state.S <= 2.0
-        assert -2.0 <= new_state.V <= 2.0
+        assert 0.0 <= new_state.S <= 1.0
+        assert -1.0 <= new_state.V <= 1.0
 
 
 # ============================================================================

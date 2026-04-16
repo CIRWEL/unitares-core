@@ -152,8 +152,8 @@ def _derivatives(
     # integrators remain as a safety net but should never activate.
     m = params.barrier_margin
     s = params.barrier_strength
-    S_range_ratio = params.S_max - params.S_min   # ~2.0
-    V_range_ratio = params.V_max - params.V_min   # ~4.0
+    S_range_ratio = params.S_max - params.S_min   # ~1.0
+    V_range_ratio = params.V_max - params.V_min   # ~2.0
 
     dE_dt += barrier(E, params.E_min, params.E_max, s, m)
     dI_dt += barrier(I, params.I_min, params.I_max, s, m)
