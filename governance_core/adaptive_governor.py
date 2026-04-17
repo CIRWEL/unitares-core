@@ -19,11 +19,10 @@ Update cycle (called from process_agent_update):
      - Zero-crossing reset: integral resets when error crosses zero
      - D-factor: modulated by phase (exploration=0.5, integration=1.0)
   5. Apply bounded adjustment: tau/beta clamped to [floor, ceiling]
-  6. Include neighbor pressure (tightens: tau gets higher, beta gets lower)
-  7. Update oscillation metrics (OI via incremental EMA, flips, resonance)
-  8. Threshold decay when stable (OI < threshold and flips == 0)
-  9. Store controller output for observability
-  10. Make verdict and return result dict
+  6. Update oscillation metrics (OI via incremental EMA, flips, resonance)
+  7. Threshold decay when stable (OI < threshold and flips == 0)
+  8. Store controller output for observability
+  9. Make verdict and return result dict
 """
 
 from dataclasses import dataclass, field
@@ -116,10 +115,6 @@ class GovernorState:
     ema_risk: float = 0.0
     history: List[Dict] = field(default_factory=list)
 
-    # Neighbor pressure
-    neighbor_pressure: float = 0.0
-    agents_in_resonance: int = 0
-
     # Per-agent V damping
     delta: float = 0.25
     error_integral_delta: float = 0.0
@@ -150,8 +145,6 @@ class GovernorState:
             "was_resonant": self.was_resonant,
             "ema_coherence": self.ema_coherence,
             "ema_risk": self.ema_risk,
-            "neighbor_pressure": self.neighbor_pressure,
-            "agents_in_resonance": self.agents_in_resonance,
             "history": self.history[-10:] if self.history else [],
             "delta": self.delta,
             "error_integral_delta": self.error_integral_delta,
@@ -165,14 +158,13 @@ class GovernorState:
         state = cls()
         for key in ("tau", "beta", "phase", "error_integral_tau", "error_integral_beta",
                      "prev_error_tau", "prev_error_beta", "oi", "ema_coherence", "ema_risk",
-                     "neighbor_pressure", "delta", "error_integral_delta",
+                     "delta", "error_integral_delta",
                      "prev_error_delta", "v_variance_ema"):
             if key in data:
                 setattr(state, key, data[key])
         state.flips = int(data.get("flips", 0))
         state.resonant = bool(data.get("resonant", False))
         state.was_resonant = bool(data.get("was_resonant", False))
-        state.agents_in_resonance = int(data.get("agents_in_resonance", 0))
         state.history = list(data.get("history", []))
         return state
 
@@ -291,10 +283,6 @@ class AdaptiveGovernor:
         # 5. Apply bounded adjustment
         adjustment_tau = p_tau + i_tau + d_tau
         adjustment_beta = p_beta + i_beta + d_beta
-
-        # Include neighbor pressure (tightens: tau gets HIGHER, beta gets LOWER)
-        adjustment_tau += self.state.neighbor_pressure
-        adjustment_beta -= self.state.neighbor_pressure
 
         self.state.tau = _clamp(
             self.state.tau + adjustment_tau,
@@ -421,40 +409,6 @@ class AdaptiveGovernor:
             return Verdict.CAUTION
         return Verdict.HIGH_RISK
 
-    def apply_neighbor_pressure(
-        self, similarity: float, pressure_factor: float = 0.02,
-        similarity_threshold: float = 0.5
-    ):
-        """Apply defensive threshold tightening from neighbor resonance.
-
-        When a neighbor emits RESONANCE_ALERT and this agent has high
-        similarity with them (shared state surface), we tighten our own
-        thresholds defensively.
-
-        Args:
-            similarity: Coherence report similarity with resonating neighbor [0, 1]
-            pressure_factor: Base pressure amount (default 0.02)
-            similarity_threshold: Minimum similarity to react (default 0.5)
-        """
-        if similarity < similarity_threshold:
-            return
-        self.state.neighbor_pressure += pressure_factor * similarity
-        self.state.agents_in_resonance += 1
-
-    def decay_neighbor_pressure(self, decay_factor: float = 0.2):
-        """Decay neighbor pressure after STABILITY_RESTORED.
-
-        Called when a previously-resonating neighbor signals stability.
-        Decays the defensive bias over multiple updates.
-
-        Args:
-            decay_factor: Fraction of pressure to remove per call (default 0.2)
-        """
-        self.state.neighbor_pressure *= (1 - decay_factor)
-        if self.state.neighbor_pressure < 0.001:
-            self.state.neighbor_pressure = 0.0
-            self.state.agents_in_resonance = max(0, self.state.agents_in_resonance - 1)
-
     def _update_oscillation(
         self, coherence: float, risk: float, verdict: str
     ):
@@ -542,8 +496,6 @@ class AdaptiveGovernor:
             "resonant": self.state.resonant,
             "trigger": self.state.trigger,
             "response_tier": verdict,  # Backward compat key
-            "neighbor_pressure": self.state.neighbor_pressure,
-            "agents_in_resonance": self.state.agents_in_resonance,
             "delta": self.state.delta,
             "v_variance_ema": self.state.v_variance_ema,
         }
