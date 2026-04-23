@@ -9,3 +9,8 @@ dist/
 .eggs/
 *.whl
 .pytest_cache/
+
+# Local dev cruft
+.DS_Store
+.claude/
+.hypothesis/
